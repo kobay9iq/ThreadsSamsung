@@ -1,126 +1,117 @@
 package com.example.threads;
 
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.view.View;
-import android.view.View.OnClickListener;
+import android.widget.Button;
 import android.widget.EditText;
+import android.widget.TextView;
+
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import android.os.Bundle;
-import com.example.threads.databinding.ActivityMainBinding;
-
 
 public class MainActivity extends AppCompatActivity {
-  private static final Object lock = new Object();
 
-  boolean notStarted = true;
-  String output = "";
-  protected static Object[] turns = {new Object(), new Object(), new Object()};
-  protected static int nextTurn = 1;
-  protected static Handler msgHandler;
+  private EditText etTop, etCenter, etBottom;
+  private Handler handler;
+  private Button goButton;
+  private TextView outputTextView;
+
+  private Object lock = new Object();
+  private int currentIndex = 0;
 
   @Override
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
+    setContentView(R.layout.activity_main);
 
-    ActivityMainBinding binding = ActivityMainBinding.inflate(getLayoutInflater());
-    setContentView(binding.getRoot());
+    etTop = findViewById(R.id.ET_top);
+    etCenter = findViewById(R.id.ET_center);
+    etBottom = findViewById(R.id.ET_bottom);
+    goButton = findViewById(R.id.GO_button);
+    outputTextView = findViewById(R.id.output);
 
+    handler =
+        new Handler(Looper.getMainLooper()) {
+          @Override
+          public void handleMessage(@NonNull Message msg) {
+            super.handleMessage(msg);
+            String str = (String) msg.obj;
+            outputTextView.append(str);
+          }
+        };
 
-    msgHandler = new Handler(Looper.getMainLooper()) {
-      @Override
-      public void handleMessage(@NonNull Message msg) {
-        super.handleMessage(msg);
-        char[] chars = (char[]) msg.obj;
-        String str = String.valueOf(chars);
-        output += str;
-        binding.output.setText(output);
-      }
-    };
-
-
-    EditText[] editTexts = {binding.ETTop, binding.ETCenter, binding.ETBottom};
-
-    binding.GOButton.setOnClickListener(
-        new OnClickListener() {
+    goButton.setOnClickListener(
+        new View.OnClickListener() {
           @Override
           public void onClick(View v) {
-            if (notStarted) {
-              MyThread firstThread = new MyThread(editTexts[0].getText().toString());
-              MyThread secondThread = new MyThread(editTexts[1].getText().toString());
-              MyThread thirdThread = new MyThread(editTexts[2].getText().toString());
+            startThreads();
+          }
+        });
+  }
 
-              firstThread.start();
-              secondThread.start();
-              thirdThread.start();
+  private void startThreads() {
+    String topText = etTop.getText().toString();
+    String centerText = etCenter.getText().toString();
+    String bottomText = etBottom.getText().toString();
 
-              try {
-                synchronized (turns[1]) {
-                  turns[1].wait();
+    Thread threadTop = createThread(topText, 0);
+    Thread threadCenter = createThread(centerText, 1);
+    Thread threadBottom = createThread(bottomText, 2);
+
+    threadTop.start();
+    threadCenter.start();
+    threadBottom.start();
+  }
+
+  private Thread createThread(final String text, final int threadIndex) {
+    return new Thread(
+        new Runnable() {
+          @Override
+          public void run() {
+            String[] words = text.split(" ");
+
+            for (String word : words) {
+              synchronized (lock) {
+                while (currentIndex != threadIndex) {
+                  try {
+                    lock.wait();
+                  } catch (InterruptedException e) {
+                    e.printStackTrace();
+                  }
                 }
-                synchronized (turns[2]) {
-                  turns[2].wait();
-                }
-              } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-              }
 
-              notStarted = false;
-              for (EditText et : editTexts) {
-                et.setFocusable(false);
-                et.setLongClickable(false);
-                et.setCursorVisible(false);
+                for (int i = 0; i != word.length(); i++) {
+                  String ch = String.valueOf(word.charAt(i));
+
+                  if (i == word.length() - 1) {
+                    ch += " ";
+                  }
+
+                  Message msg = new Message();
+                  msg.obj = ch;
+                  handler.sendMessage(msg);
+
+                  try {
+                    if (ch.contains(" ") || ch.contains(".") || ch.contains("!") || ch.contains("?")) {
+
+                      Thread.sleep(1000);
+                    } else {
+                      Thread.sleep(500);
+                    }
+                  } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                  }
+                }
+
+                currentIndex = (currentIndex + 1) % 3;
+
+                lock.notifyAll();
               }
             }
           }
         });
   }
 }
-
-class MyThread extends Thread {
-  private char[] TextToView;
-  private String text;
-
-  public MyThread(String text) {
-    this.text = text;
-    TextToView = new char[text.length()];
-  }
-
-  @Override
-  public void run() {
-    super.run();
-    char[] textChars = text.toCharArray();
-
-    synchronized (MainActivity.turns[MainActivity.nextTurn % 3 - 1]) {
-      for (int i = 0; i != textChars.length; i++) {
-        char ch = textChars[i];
-        TextToView[i] = ch;
-
-
-        Message msg = new Message();
-        msg.obj = TextToView;
-        MainActivity.msgHandler.sendMessage(msg);
-
-        try {
-          if (ch == '.' || ch == '?' || ch == '!') {
-            Thread.sleep(1000);
-          } else {
-            Thread.sleep(200);
-          }
-
-          if (ch == ' ') {
-            MainActivity.turns[MainActivity.nextTurn % 3].notify();
-            MainActivity.turns[MainActivity.nextTurn % 3 - 1].wait();
-
-          }
-        } catch (InterruptedException e) {
-          throw new RuntimeException(e);
-        }
-      }
-    }
-  }
-}
-
-
